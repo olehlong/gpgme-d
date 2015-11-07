@@ -1,0 +1,6 @@
+.dub
+.buildpath
+.project
+.settings
+/libgpgme-d.a
+/gpgme-d

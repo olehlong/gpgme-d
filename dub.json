@@ -1,0 +1,25 @@
+{
+	"name" : "gpgme-d",
+	"description" : "D Programming Language binding for GPGME.",
+	"license": "MIT",
+	"authors": [
+		"Oleh Havrys"
+	],
+	
+	"dependencies" : {
+		"gpgerror-d": {"version": "~master", "path": "../gpg-error-d/"}
+	},
+	"libs-posix" : ["gpgme"],
+	
+	"configurations" : [
+		{
+			"name": "library",
+			"targetType": "library"
+		},
+		{
+			"name": "unittest",
+			"mainSourceFile": "src/app.d",
+			"targetType": "executable"
+		}
+	]
+}
