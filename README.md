@@ -1,2 +1,2 @@
 # gpgme-d
-D Programming Language binding for gpgme
+D Programming Language binding for GPGME.
