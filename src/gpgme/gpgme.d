@@ -28,6 +28,17 @@ import core.stdc.time;
  * Generated from gpgme.h.in for x86_64-unknown-linux-gnu.
  */
 
+/* The version of this header should match the one of the library.  Do
+   not use this symbol in your application, use gpgme_check_version
+   instead.  The purpose of this macro is to let autoconf (using the
+   AM_PATH_GPGME macro) check that this header matches the installed
+   library.  */
+static const(char*) GPGME_VERSION = "1.6.0";
+
+/* The version number of this header.  It may be used to handle minor API incompatibilities.  */
+enum GPGME_VERSION_NUMBER = 0x010600;
+
+
 alias off_t = long;
 alias gpgme_off_t = off_t;
 alias gpgme_ssize_t = ptrdiff_t ;
@@ -1604,8 +1615,7 @@ alias gpgme_signature_t = _gpgme_signature*;
 struct _gpgme_op_verify_result {
 	gpgme_signature_t signatures;
 
-	/* The original file name of the plaintext message, if
-		available.  */
+	/* The original file name of the plaintext message, if available.  */
 	char* file_name;
 }
 
@@ -2190,7 +2200,7 @@ extern(C) nothrow @nogc {
 	/* Check that the library fulfills the version requirement and check for struct layout mismatch involving bitfields.  */
 	const(char*) gpgme_check_version_internal(const(char*) req_version, size_t offset_sig_validity);
 	
-	const(char*) gpgme_check_version(const(char*) req_version) {
+	const(char*) gpgme_check_version_new(const(char*) req_version) {
 		return gpgme_check_version_internal(req_version, _gpgme_signature.validity.offsetof);
 	}
 		
@@ -2266,4 +2276,297 @@ deprecated {
 	alias GpgmeGenKeyResult = gpgme_genkey_result_t;
 	alias GpgmeTrustItem = gpgme_trust_item_t;
 	alias GpgmeStatusCode = gpgme_status_code_t;
+}
+
+
+
+version(unittest) {
+	import std.stdio : printf, write, writeln;
+	import std.conv;
+	import core.stdc.string : strcmp, strchr;
+	import core.stdc.locale;
+	import core.stdc.stdlib : getenv;
+	import core.stdc.stdio : SEEK_SET;
+	
+	void check_result_verify(gpgme_verify_result_t result, uint summary, string fpr, gpgme_error_t status, int notation) {
+		gpgme_signature_t sig;
+		
+		sig = result.signatures;
+		
+		assert(sig && !sig.next); // Unexpected number of signatures
+		assert(sig.summary == summary); // Unexpected signature summary
+		assert(!strcmp(sig.fpr, fpr.ptr)); // Unexpected fingerprint
+		assert(gpgme_err_code(sig.status) == status); // Unexpected signature status
+		
+		if(notation) {
+			struct expected_notations_str {
+				const(char*) name;
+				const(char*) value;
+				int seen = 0;
+			} 
+			
+			expected_notations_str[] expected_notations = [
+				expected_notations_str("bar", "\xc3\xb6\xc3\xa4\xc3\xbc\xc3\x9f das waren Umlaute und jetzt ein prozent%-Zeichen"),
+				expected_notations_str("foobar.1",  "this is a notation data with 2 lines"),
+				expected_notations_str(null, "http://www.gu.org/policy/")
+			];
+			
+			int i;
+			gpgme_sig_notation_t r;
+
+			for(r = sig.notations; r; r = r.next) {
+				int any = 0;
+				for(i=0; i < expected_notations.length; i++) {
+					if(((r.name && expected_notations[i].name && !strcmp(r.name, expected_notations[i].name) && r.name_len == to!string(expected_notations[i].name).length) || (!r.name && !expected_notations[i].name && r.name_len == 0)) && r.value && !strcmp(r.value, expected_notations[i].value) && r.value_len == to!string(expected_notations[i].value).length) {
+						expected_notations[i].seen++;
+						any++;
+					}
+				}
+				assert(any); // Unexpected notation data
+			}
+			
+			for(i=0; i < expected_notations.length; i++) {
+				assert(expected_notations[i].seen == 1); // Missing or duplicate notation data
+			}
+		}
+
+		assert(!sig.wrong_key_usage); // Unexpectedly wrong key usage
+		assert(sig.validity == gpgme_validity_t.GPGME_VALIDITY_UNKNOWN); // Unexpected validity
+		assert(gpgme_err_code(sig.validity_reason) == gpg_err_code_t.GPG_ERR_NO_ERROR); // Unexpected validity reason
+	}
+	
+	void check_result_sign(gpgme_sign_result_t result, gpgme_sig_mode_t type) {
+		
+		assert(!result.invalid_signers); // Invalid signer found
+		assert(result.signatures && !result.signatures.next); // Unexpected number of signatures created
+		assert(result.signatures.type == type); // Wrong type of signature created
+		assert(result.signatures.pubkey_algo == gpgme_pubkey_algo_t.GPGME_PK_DSA); // Wrong pubkey algorithm reported
+		
+		assert(result.signatures.hash_algo == gpgme_hash_algo_t.GPGME_MD_SHA1); // Wrong hash algorithm reported
+		assert(result.signatures.sig_class == 1); // Wrong signature class reported
+		assert(!strcmp("A0FF4590BB6122EDEF6E3C542D727CC768697734", result.signatures.fpr)); // Wrong fingerprint reported
+	}
+}
+
+unittest {
+	
+	// ----------------- GPGME basic
+	
+	// version test
+	
+	printf("Version from header: %s (0x%06x)\n", GPGME_VERSION, GPGME_VERSION_NUMBER);
+    printf("Version from binary: %s\n", gpgme_check_version_new(null));
+	
+	write("Test: version ... ");
+	
+	assert(gpgme_check_version_new(GPGME_VERSION) != null);
+	assert(gpgme_check_version_new("15") == null);
+	
+	writeln("SUCCESS"); 
+	
+	// engine info test
+	
+	write("Test: engine info ... ");
+	
+	gpgme_engine_info_t info;
+	gpgme_error_t err;
+	err = gpgme_get_engine_info(&info);
+	
+	assert(err == 0);
+	
+	writeln("SUCCESS"); 
+	
+	// data test
+	
+	// TODO: add data test
+	
+}
+
+
+unittest {
+	
+	// ----------------- GPG
+	
+	// verify test
+	
+	write("Test: verify ... ");
+	
+	string test_text1 = "Just GNU it!\n";
+	string test_text1f = "Just GNU it?\n";
+	string test_sig1 = q"EOS
+-----BEGIN PGP SIGNATURE-----
+
+iN0EABECAJ0FAjoS+i9FFIAAAAAAAwA5YmFyw7bDpMO8w58gZGFzIHdhcmVuIFVt
+bGF1dGUgdW5kIGpldHp0IGVpbiBwcm96ZW50JS1aZWljaGVuNRSAAAAAAAgAJGZv
+b2Jhci4xdGhpcyBpcyBhIG5vdGF0aW9uIGRhdGEgd2l0aCAyIGxpbmVzGhpodHRw
+Oi8vd3d3Lmd1Lm9yZy9wb2xpY3kvAAoJEC1yfMdoaXc0JBIAoIiLlUsvpMDOyGEc
+dADGKXF/Hcb+AKCJWPphZCphduxSvrzH0hgzHdeQaA==
+=nts1
+-----END PGP SIGNATURE-----
+EOS";
+
+	string test_sig2 = q"EOS
+-----BEGIN PGP MESSAGE-----
+
+owGbwMvMwCSoW1RzPCOz3IRxjXQSR0lqcYleSUWJTZOvjVdpcYmCu1+oQmaJIleH
+GwuDIBMDGysTSIqBi1MApi+nlGGuwDeHao53HBr+FoVGP3xX+kvuu9fCMJvl6IOf
+y1kvP4y+8D5a11ang0udywsA
+=Crq6
+-----END PGP MESSAGE-----
+EOS";
+	/* A message with a prepended but unsigned plaintext packet. */
+	string double_plaintext_sig = q"EOS
+-----BEGIN PGP MESSAGE-----
+
+rDRiCmZvb2Jhci50eHRF4pxNVGhpcyBpcyBteSBzbmVha3kgcGxhaW50ZXh0IG1l
+c3NhZ2UKowGbwMvMwCSoW1RzPCOz3IRxTWISa6JebnG666MFD1wzSzJSixQ81XMV
+UlITUxTyixRyKxXKE0uSMxQyEosVikvyCwpSU/S4FNCArq6Ce1F+aXJGvoJvYlGF
+erFCTmJxiUJ5flFKMVeHGwuDIBMDGysTyA4GLk4BmO036xgWzMgzt9V85jCtfDFn
+UqVooWlGXHwNw/xg/fVzt9VNbtjtJ/fhUqYo0/LyCGEA
+=6+AK
+-----END PGP MESSAGE-----
+EOS";
+
+	
+	gpgme_ctx_t ctx;
+	gpgme_error_t err;
+	gpgme_data_t sig, text;
+	gpgme_verify_result_t result;
+	
+	setlocale(LC_ALL, "");
+	
+	gpgme_set_locale(null, LC_CTYPE, setlocale(LC_CTYPE, null));
+	
+	err = gpgme_engine_check_version(gpgme_protocol_t.GPGME_PROTOCOL_OpenPGP);
+	assert(err == 0);
+	
+	err = gpgme_new(&ctx);
+	assert(err == 0);
+	
+	/* Checking a valid message.  */
+	err = gpgme_data_new_from_mem(&text, test_text1.ptr, test_text1.length, 0);
+	assert(err == 0);
+	err = gpgme_data_new_from_mem(&sig, test_sig1.ptr, test_sig1.length, 0);
+	assert(err == 0);
+	err = gpgme_op_verify(ctx, sig, text, null);
+	assert(err == 0);
+	result = gpgme_op_verify_result(ctx);
+	check_result_verify(result, 0, "A0FF4590BB6122EDEF6E3C542D727CC768697734", gpg_err_code_t.GPG_ERR_NO_ERROR, 1);
+	
+	write("1 ... ");
+	
+	/* Checking a manipulated message.  */
+	gpgme_data_release(text);
+	err = gpgme_data_new_from_mem (&text, test_text1f.ptr, test_text1f.length, 0);
+	assert(err == 0);
+	gpgme_data_seek(sig, 0, SEEK_SET);
+	err = gpgme_op_verify(ctx, sig, text, null);
+	assert(err == 0);
+	result = gpgme_op_verify_result(ctx);
+	check_result_verify(result, gpgme_sigsum_t.GPGME_SIGSUM_RED, "2D727CC768697734", gpg_err_code_t.GPG_ERR_BAD_SIGNATURE, 0);
+	
+	write("2 ... ");
+	
+	/* Checking a normal signature.  */
+	gpgme_data_release(sig);
+	gpgme_data_release(text);
+	err = gpgme_data_new_from_mem(&sig, test_sig2.ptr, test_sig2.length, 0);
+	assert(err == 0);
+	err = gpgme_data_new(&text);
+	assert(err == 0);
+	err = gpgme_op_verify(ctx, sig, null, text);
+	assert(err == 0);
+	result = gpgme_op_verify_result(ctx);
+	check_result_verify(result, 0, "A0FF4590BB6122EDEF6E3C542D727CC768697734", gpg_err_code_t.GPG_ERR_NO_ERROR, 0);
+	
+	write("3 ... ");
+	
+	/* Checking an invalid message.  */
+	gpgme_data_release(sig);
+	gpgme_data_release(text);
+	err = gpgme_data_new_from_mem(&sig, double_plaintext_sig.ptr, double_plaintext_sig.length, 0);
+	assert(err == 0);
+	err = gpgme_data_new(&text);
+	assert(err == 0);
+	err = gpgme_op_verify(ctx, sig, null, text);
+	assert(gpgme_err_code(err) == gpg_err_code_t.GPG_ERR_BAD_DATA); // Double plaintext message not detected
+
+	write("4 ... ");
+
+	gpgme_data_release(sig);
+	gpgme_data_release(text);
+	gpgme_release(ctx);
+	
+	writeln("SUCCESS");
+	
+	// sign test
+	
+	write("Test: sign ... ");
+	
+	gpgme_sign_result_t result2;
+	gpgme_data_t in_, out_;
+	char* agent_info;
+	
+	err = gpgme_new(&ctx);
+	assert(err == 0);
+	
+	agent_info = getenv("GPG_AGENT_INFO");
+	assert(agent_info && strchr(agent_info, ':'));
+
+	gpgme_set_textmode(ctx, 1);
+	gpgme_set_armor(ctx, 1);
+	
+	gpgme_key_t akey;
+    err = gpgme_get_key(ctx, "0x68697734", &akey, 0);
+    assert(err == 0);
+    gpgme_signers_clear(ctx);
+    err = gpgme_signers_add(ctx, akey);
+    assert(err == 0);
+    gpgme_key_unref(akey);
+	
+	err = gpgme_data_new_from_mem(&in_, "Hallo Leute\n", 12, 0);
+	assert(err == 0);
+	
+	/* First a normal signature.  */
+	err = gpgme_data_new(&out_);
+	assert(err == 0);
+	err = gpgme_op_sign(ctx, in_, out_, gpgme_sig_mode_t.GPGME_SIG_MODE_NORMAL);
+	assert(err == 0);
+	result2 = gpgme_op_sign_result(ctx);
+	check_result_sign(result2, gpgme_sig_mode_t.GPGME_SIG_MODE_NORMAL);
+	gpgme_data_release(out_);
+	
+	write("1 ... ");
+	
+	/* Now a detached signature.  */ 
+	gpgme_data_seek(in_, 0, SEEK_SET);
+	err = gpgme_data_new(&out_);
+	assert(err == 0);
+	err = gpgme_op_sign(ctx, in_, out_, gpgme_sig_mode_t.GPGME_SIG_MODE_DETACH);
+	assert(err == 0);
+	result2 = gpgme_op_sign_result(ctx);
+	check_result_sign(result2, gpgme_sig_mode_t.GPGME_SIG_MODE_DETACH);
+	gpgme_data_release (out_);
+	
+	write("2 ... ");
+
+	/* And finally a cleartext signature.  */
+	gpgme_data_seek(in_, 0, SEEK_SET);
+	err = gpgme_data_new(&out_);
+	assert(err == 0);
+	err = gpgme_op_sign(ctx, in_, out_, gpgme_sig_mode_t.GPGME_SIG_MODE_CLEAR);
+	assert(err == 0);
+	result2 = gpgme_op_sign_result(ctx);
+	check_result_sign(result2, gpgme_sig_mode_t.GPGME_SIG_MODE_CLEAR);
+	gpgme_data_release(out_);
+
+	write("3 ... ");
+
+	gpgme_data_release(in_);
+	gpgme_release(ctx);
+	
+	
+	
+	writeln("SUCCESS");
+	
 }
