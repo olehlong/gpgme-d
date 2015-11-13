@@ -7,7 +7,7 @@
 	],
 	
 	"dependencies" : {
-		"gpgerror-d": {"version": "~master", "path": "../gpg-error-d/"}
+		"gpgerror-d": "~>1.17.0"
 	},
 	"libs-posix" : ["gpgme"],
 	
